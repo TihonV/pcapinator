@@ -172,6 +172,7 @@ def _init_parser() -> argparse.ArgumentParser:
         "--min_split",
         action="store",
         dest="minsplitsz",
+        default=209715200,
         help="Min Split Size in bytes, default 200 MB"
     )
     parser.add_argument(
