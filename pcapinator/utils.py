@@ -1,4 +1,5 @@
 import logging
+import struct
 from functools import partial, update_wrapper, wraps
 from itertools import chain
 from pathlib import Path
@@ -12,12 +13,8 @@ from pcapinator.consts import CHUNKSZ
 
 global DEBUG_LEVEL
 
-SEVERETY_LEVEL = logging.DEBUG
-
 perf_logger = logging.getLogger('perf')
-perf_logger.setLevel(SEVERETY_LEVEL)
 util_logger = logging.getLogger('util')
-util_logger.setLevel(SEVERETY_LEVEL)
 
 
 def add_perf_counter(func):
@@ -129,9 +126,7 @@ def make_unique_ssid_for_tsv(
 ) -> Generator[Path, None, None]:
     """
     Function for creating small temporary TSV pieces with unique values
-    :param file:
-    :param chunksize:
-    :return:
+    :return: TSV with uq-data
     """
     result = pd.DataFrame()
     result_file = Path('unique-{}.tsv'.format(uuid4()))
@@ -151,3 +146,29 @@ def make_unique_ssid_for_tsv(
     writer = update_wrapper(add_perf_counter, result.to_csv)
     writer(str(result_file), sep='\t', index=False)
     return result_file
+
+
+def write_pcap_header(f, dlt):
+    hdr = struct.pack(
+        'IHHiIII',
+        0xa1b2c3d4,  # magic
+        2, 4,  # version
+        0,  # offset
+        0,  # sigfigs
+        8192,  # max packet len
+        dlt  # packet type
+    )
+
+    f.write(hdr)
+
+
+def write_pcap_packet(f, timeval_s, timeval_us, packet_bytes):
+    pkt = struct.pack(
+        'IIII',
+        timeval_s,
+        timeval_us,
+        len(packet_bytes),
+        len(packet_bytes)
+    )
+    f.write(pkt)
+    f.write(packet_bytes)
