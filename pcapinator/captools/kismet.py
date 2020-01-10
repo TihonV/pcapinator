@@ -4,6 +4,7 @@ import sqlite3
 from contextlib import closing
 from multiprocessing.pool import ThreadPool
 from pathlib import Path
+from typing import Any, List
 
 from pcapinator.utils import (
     add_perf_counter,
@@ -15,12 +16,12 @@ logger = logging.getLogger(__name__)
 
 
 @add_perf_counter
-def kismet_log2pcap(kismetdb, pid):
-    with closing(sqlite3.connect(kismetdb)) as db:
+def kismet_log2pcap(kismetdb: Path, pid: Any) -> Path:
+    with closing(sqlite3.connect(str(kismetdb))) as db:
         logger.debug("Id: {} sqlite3 DB opened: {}".format(pid, kismetdb))
         # noinspection SqlNoDataSourceInspection
         sql = "SELECT ts_sec, ts_usec, dlt, packet FROM packets WHERE dlt > 0"
-        outfile = Path(kismetdb + '.pcap')
+        outfile = Path(kismetdb.name + '.pcap')
         npackets = 0
 
         with db.cursor() as conn:
@@ -43,9 +44,11 @@ def kismet_log2pcap(kismetdb, pid):
                     npackets += 1
             logger.info("Id: {} Done! Converted {} packets.".format(pid, npackets))
 
+        return outfile
+
 
 @add_perf_counter
-def process_kismet_log(kismetdbs):
+def process_kismet_log(kismetdbs) -> List[Any]:
     if len(kismetdbs) < mp.cpu_count():
         pool = ThreadPool(len(kismetdbs))
     else:
@@ -57,7 +60,8 @@ def process_kismet_log(kismetdbs):
         # tsharking(inpcap, params, output, outext, procid)
         ("ID: {} Processing: {}".format(pid, f))
         results.append(pool.apply_async(kismet_log2pcap, (f, pid)))
-        pid = pid + 1
 
     pool.close()
     pool.join()
+
+    return results
