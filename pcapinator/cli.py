@@ -1,10 +1,10 @@
 import argparse
 import logging
-from os import R_OK, access
+from os import R_OK, W_OK, access
 from pathlib import Path
 from typing import Any, Generic, List, Text, TypeVar
 
-from pcapinator.consts import PROGNAME
+from pcapinator.consts import PROGNAME, WSHARK_DEFAULT_DIR
 
 __all__ = (
     'get_cli_args',
@@ -42,14 +42,27 @@ def get_readable_file_or_dir_path(val: Text) -> Path:
 def get_writable_path(val: Text) -> Path:
     prospective_path = Path(val).resolve()
 
-    if access(prospective_path, R_OK) and prospective_path.parent.exists():
+    if access(prospective_path.parent, W_OK) and prospective_path.parent.exists():
         return prospective_path
 
     raise argparse.ArgumentTypeError(
-        "WritablePath:{0} haven't parent directory or not acceptable for write".format(
+        "NotWritablePath:{0} haven't parent directory or not acceptable for write".format(
             prospective_path
         )
     )
+
+
+SIZE_UNITS = {"B": 1, "KB": 2 ** 10, "MB": 2 ** 20, "GB": 2 ** 30, "TB": 2 ** 40}
+
+
+def parse_size(size):
+    number = ''.join(
+        filter(
+            str.isdigit, size
+        )
+    )
+    unit = size[len(number):]
+    return int(number) * SIZE_UNITS[unit.upper()]
 
 
 class _Args(Generic[T]):
@@ -57,16 +70,14 @@ class _Args(Generic[T]):
     kismetdb: bool
     outfile: Path
     verbose: int
-    split: bool
     split_count: int
     split_output: Path
-    wshark_dir: Path
-    handshakes: bool
-    wifi_csv: bool
-    hashcat: bool
-    dnssimple: bool
-    pcapfix: bool
-    pcapfd: Path
+    override_wshark: Path
+    handshakes_out: Path
+    wifi_tsv: Path
+    override_hccapx_tool: Path
+    dns_simple: bool
+    pcap_fix_dir: Path
     minsplitsz: Any
     tshark_query: Text
     tshark_fields: Any
@@ -102,102 +113,109 @@ def _init_parser() -> argparse.ArgumentParser:
         help="Output file"
     )
     parser.add_argument(
+        "-w",
+        "--workers",
+        action="store",
+        dest="workers",
+        help="max CPU workers count"
+    )
+    parser.add_argument(
+        "--split-data-by-parts",
+        action="store",
+        type=int,
+        default=0,
+        dest="split_count",
+        help="Set the number of pieces the PCAP will be split into"
+    )
+    parser.add_argument(
+        "--temp-directory",
+        action="store",
+        type=get_writable_path,
+        dest="split_output",
+        help="Directory location of storing temporary files"
+    )
+    parser.add_argument(
+        "--override-wshark",
+        action="store",
+        default=WSHARK_DEFAULT_DIR,
+        type=get_readable_file_or_dir_path,
+        help="Define the location of the `./wireshark/bin` directory"
+    )
+    parser.add_argument(
+        "--handshakes-out",
+        action="store",
+        type=get_writable_path,
+        help="output folder for WPA/WPA2 handshakes"
+    )
+    parser.add_argument(
+        "--wifi-tsv",
+        action="store",
+        type=get_readable_file_or_dir_path,
+        help="build TSV files with default tables"
+    )
+    parser.add_argument(
+        "--override-hccapx-tool",
+        action="store",
+        type=get_readable_file_or_dir_path,
+        help="override to hccapx utility"
+    )
+    parser.add_argument(
+        "--dns-simple",
+        action="store_true",
+        dest="dns_simple",
+        help="make TSV only with dns data"
+    )
+    parser.add_argument(
+        "--pcap-fix-dir",
+        action="store",
+        type=get_writable_path,
+        dest="pcap_fix_dir",
+        help="save autofixed pcap-files into specific directory"
+    )
+    parser.add_argument(
+        "--chunk-size",
+        action="store",
+        dest="chunk_size",
+        type=parse_size,
+        default=parse_size('200MB'),
+        help="Min Split Size in bytes, default 200 MB"
+    )
+    parser.add_argument(
+        "--tshark-query",
+        action="store",
+        dest="tshark_query",
+        help="passing field list to tshark with `--query`"
+    )
+    parser.add_argument(
+        "--tshark-fields",
+        action="store",
+        dest="tshark_fields",
+        help="passing field list to tshark with `--fields`"
+    )
+    parser.add_argument(
+        "--unique-tsv-out",
+        action="store",
+        dest="existing_tsv",
+        help="Calculate & save unique SSID from a dumps"
+    )
+    parser.add_argument(
+        "--validate-wifi-tsv",
+        action="store_true",
+        dest="validate_tsv",
+        help="apply fixture to a broken SSID in tsv file"
+    )
+    parser.add_argument(
         "-v",
-        "--verbosity",
+        dest="verbose",
         action="count",
         default=0,
         help="defaults — no verbosity; \"-v\" — basic; \"-vv\" — performance counters; "
              "\"-vvv\" — extended"
     )
     parser.add_argument(
-        "--split",
-        action="store_true",
-        dest="split",
-        help="Split the PCAP into pieces based on CPU count"
-    )
-    parser.add_argument(
-        "--split_count",
-        action="store",
-        type=int,
-        dest="split_count",
-        help="Set the number of pieces the PCAP will be split into"
-    )
-    parser.add_argument(
-        "--split_output",
-        action="store",
-        type=get_writable_path,
-        dest="split_output",
-        help="Directory location of the newly split files"
-    )
-    parser.add_argument(
-        "--wshark_dir",
-        action="store",
-        type=get_readable_file_or_dir_path,
-        help="Define the location of the wireshark directory"
-    )
-    parser.add_argument(
-        "--handshakes",
-        action="store_true",
-        help="Get WPA/WPA2 handshakes"
-    )
-    parser.add_argument(
-        "--wifi_csv",
-        action="store_true",
-        help="Build CSV files with default tables"
-    )
-    parser.add_argument(
-        "--hashcat",
-        action="store_true",
-        help="Output to Hashcat format"
-    )
-    parser.add_argument(
-        "--dnsSimple",
-        action="store_true",
-        dest="dnssimple",
-        help="Create a CSV of dns data only"
-    )
-    parser.add_argument(
-        "--pcapfix",
-        action="store_true",
-        help="Fixes Borked PCAP files, only works in *nix"
-    )
-    parser.add_argument(
-        "--pcapfix_dir",
-        action="store",
-        type=get_writable_path,
-        dest="pcapfd",
-        help="Set the PCAPFix directory where broken files will go"
-    )
-    parser.add_argument(
-        "--min_split",
-        action="store",
-        dest="minsplitsz",
-        default=209715200,
-        help="Min Split Size in bytes, default 200 MB"
-    )
-    parser.add_argument(
-        "--query",
-        action="store",
-        dest="tshark_query",
-        help="A custom query that you want to run on a dataset, use with --fields"
-    )
-    parser.add_argument(
-        "--fields",
-        action="store",
-        dest="tshark_fields",
-        help="The fields list you would like to use with your query, use with --query"
-    )
-    parser.add_argument(
-        "--unique_existing_tsv",
-        action="store_true",
-        dest="existing_tsv",
-        help="Get unique data from an existing TSV file"
-    )
-    parser.add_argument(
-        "--validate_wifi_tsv",
-        action="store_true",
-        dest="validate_tsv",
-        help="Validate and fix a tsv file you are making"
+        "--version",
+        action="version",
+        version="%(prog)s 1.0"
     )
 
     return parser
