@@ -10,13 +10,13 @@ from uuid import uuid4
 
 import pandas as pd
 
-from pcapinator.consts import CHUNKSZ
-
-global DEBUG_LEVEL
-
+from pcapinator.consts import PERF, VERBOSE
 
 perf_logger = logging.getLogger('perf')
 util_logger = logging.getLogger('util')
+
+logging.addLevelName(PERF, "PERF")
+logging.addLevelName(VERBOSE, "PERF")
 
 
 def add_perf_counter(func):
@@ -25,16 +25,23 @@ def add_perf_counter(func):
         _start = perf_counter()
         result = func(*args, **kwargs)
         _end = perf_counter()
-        logging.debug('"{}" duration {}'.format(repr(func), _end - _start))
+        logging.log(
+            PERF,
+            ' {:10} {:20} has duration {:.5}'.format(
+                type(func).__name__,
+                repr(func.__name__),
+                _end - _start
+            )
+        )
         return result
 
-    return wrapper if DEBUG_LEVEL > 1 else func
+    return wrapper if perf_logger.level <= PERF else func
 
 
 @add_perf_counter
 def gen_path4files(
-        input_list: List[Path],
-        file_mask: Text = '*'
+        file_mask: Text = '*',
+        input_list: List[Path] = (Path.cwd(),),
 ) -> Generator[Path, None, None]:
     """
     Provides generator with recursive path finder
@@ -42,14 +49,15 @@ def gen_path4files(
     :param file_mask: glob mask for filtering
     :return: generator with Path-objects
     """
-    files_in_dir = map(
-        partial(Path.rglob, '**/{}'.format(file_mask)),
-        filter(Path.is_dir, input_list)
-    )
-    files = filter(Path.is_file, input_list)
-    all_of_them = chain(files, files_in_dir)
+    _input_list = tuple(map(Path, input_list))
 
-    yield from all_of_them
+    yield from filter(Path.is_file, _input_list)
+    yield from chain.from_iterable(
+        map(
+            partial(Path.rglob, pattern='**/{}'.format(file_mask)),
+            filter(Path.is_dir, _input_list)
+        )
+    )
 
 
 def fix_broken_ssid_line(s: Text) -> Text:
@@ -126,7 +134,7 @@ pd_chunked_reader = update_wrapper(
 @add_perf_counter
 def make_unique_ssid_for_tsv(
         file: Iterator[Path],
-        chunksize=CHUNKSZ
+        chunksize
 ) -> Path:
     """
     Function for creating small temporary TSV pieces with unique values
